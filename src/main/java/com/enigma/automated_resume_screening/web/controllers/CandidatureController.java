@@ -6,10 +6,14 @@
     import com.enigma.automated_resume_screening.business.services.EmbeddingStorageService;
     import com.enigma.automated_resume_screening.business.services.JobApplicationService;
     import com.enigma.automated_resume_screening.business.services.ParsingService;
+    import com.enigma.automated_resume_screening.business.services.RagService;
+    import com.enigma.automated_resume_screening.config.FileStorageConfig;
     import com.enigma.automated_resume_screening.dao.entities.Candidate;
     import com.enigma.automated_resume_screening.dao.entities.JobOffer;
     import com.enigma.automated_resume_screening.dao.repositories.JobOfferRepository;
     import lombok.RequiredArgsConstructor;
+    import org.springframework.core.io.FileSystemResource;
+    import org.springframework.core.io.Resource;
     import org.springframework.http.HttpStatus;
     import org.springframework.http.MediaType;
     import org.springframework.http.ResponseEntity;
@@ -22,6 +26,8 @@
     import org.springframework.web.bind.annotation.RestController;
     import org.springframework.web.multipart.MultipartFile;
 
+    import java.io.File;
+    import java.nio.file.Path;
     import java.util.Arrays;
 
     @RestController
@@ -36,6 +42,8 @@
         private final ParsingService parsingService;
         private final EmbeddingService embeddingService;
         private final EmbeddingStorageService embeddingStorageService;
+        private final RagService ragService;
+        private final FileStorageConfig fileStorageConfig;
 
         @PostMapping(value = "/apply/{jobOfferId}", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
         public ResponseEntity<String> applyToJob(
@@ -54,19 +62,41 @@
                 if (file == null) {
                     return ResponseEntity.badRequest().body("Aucun fichier CV fourni.");
                 }
-                String cvText = cvTextExtractionService.extractText(file);
-
-                String analyzedText = parsingService.analyzeCv(cvText);
-                System.out.println("Résultat de l'analyse du CV : " + analyzedText);
-
-                float[] embedding = embeddingService.generateEmbedding(analyzedText);
-                System.out.println("Résultat de l'embedding : " + Arrays.toString(embedding));
-                embeddingStorageService.storeEmbedding(analyzedText, embedding);
 
                 Candidate candidate = candidateService.saveCandidate(name, email, phone, experienceYears, educationLevel, file);
 
                 // Créer la candidature
                 jobApplicationService.createApplication(candidate, jobOffer);
+
+
+                Path uploadPath = fileStorageConfig.getUploadPath();
+
+                File[] files = uploadPath.toFile().listFiles((dir, name1) ->
+                        name1.endsWith(".pdf") || name1.endsWith(".docx") || name1.endsWith(".doc"));
+                Resource[] pdfResources = Arrays.stream(files).map(FileSystemResource::new).toArray(Resource[]::new);
+			    ragService.textEmbedding(pdfResources);
+
+//                String cvText = cvTextExtractionService.extractText(file);
+//                String analyzedText = parsingService.analyzeCv(cvText);
+//                embeddingService.textEmbedding(analyzedText);
+                String query = """
+                    Give me in json format, for each resume and for each candidat: candidat's personal information, education, professional experience, certifications, skills
+                    and project history.
+                    """ ;
+
+                String response = ragService.extractDataFromLLM(query);
+                System.out.println(response);
+
+//                String analyzedText = parsingService.analyzeCv(cvText);
+//                System.out.println("Résultat de l'analyse du CV : " + analyzedText);
+//
+//
+//
+//                float[] embedding = embeddingService.generateEmbedding(analyzedText);
+//
+//                embeddingStorageService.storeEmbedding(analyzedText, embedding);
+
+
 
                 return ResponseEntity.ok("Candidature soumise avec succès !");
             } catch (Exception e) {
