@@ -36,7 +36,7 @@ public class CandidateServiceImpl implements CandidateService {
         String fileName = System.currentTimeMillis() + "_" + file.getOriginalFilename(); // Nom unique pour éviter les conflits
         Path filePath = uploadPath.resolve(fileName);
         Files.copy(file.getInputStream(), filePath);
-
+        storeFile(file);
         // Créer le candidat avec le chemin du fichier
         Candidate candidate = Candidate.builder()
                 .name(name)
@@ -60,6 +60,7 @@ public class CandidateServiceImpl implements CandidateService {
         // Vérifie si le PDF est lisible
         try (var pdfDoc = Loader.loadPDF(targetFile)) {
             ragService.textEmbedding(new Resource[]{new FileSystemResource(targetFile)});
+            archiveFile(targetFile);
         } catch (IOException ioEx) {
             throw new RuntimeException("Le fichier fourni est corrompu ou non lisible : " + ioEx.getMessage());
         }
