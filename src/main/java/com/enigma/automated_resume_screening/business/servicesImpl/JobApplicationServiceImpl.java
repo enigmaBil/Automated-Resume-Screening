@@ -15,14 +15,16 @@ import java.time.LocalDateTime;
 @RequiredArgsConstructor
 public class JobApplicationServiceImpl implements JobApplicationService {
     private final JobApplicationRepository jobApplicationRepository;
+
     @Override
     public JobApplication createApplication(Candidate candidate, JobOffer jobOffer) {
-        JobApplication jobApplication = JobApplication.builder()
+        JobApplication application = JobApplication.builder()
                 .candidate(candidate)
                 .jobOffer(jobOffer)
                 .status(ApplicationStatus.PENDING)
                 .appliedAt(LocalDateTime.now())
                 .build();
-        return jobApplicationRepository.save(jobApplication);
+
+        return jobApplicationRepository.save(application);
     }
 }

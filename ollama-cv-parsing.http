@@ -1,0 +1,27 @@
+### ✅ Test prompt de parsing de CV avec LLaMA 3 via Ollama local
+POST http://localhost:11434/api/chat
+Content-Type: application/json
+
+{
+  "model": "llama3",
+  "messages": [
+    {
+      "role": "user",
+      "content": "Voici un CV brut :\n\nNom : Jean Dupont\nEmail : jean.dupont@example.com\nTéléphone : 06 12 34 56 78\nCompétences : Java, Spring Boot, Docker\nNiveau d'étude : Master\nExpérience : 5 ans\nEntreprise récente : Capgemini\n\nDonne-moi un JSON structuré avec :\n- name\n- email\n- phone\n- skills (tableau)\n- educationLevel\n- experienceYears\n- lastCompany"
+    }
+  ]
+}
+
+### 🔍 Récupérer les meilleurs candidats pour une offre d’emploi donnée
+GET http://localhost:8089/api/matchings/job-offer/1
+Accept: application/json
+
+### Test du modèle LLaMA 3 via Ollama local
+POST http://localhost:11434/api/generate
+Content-Type: application/json
+
+{
+  "model": "llama3",
+  "prompt": "Bonjour, qui êtes-vous ?",
+  "stream": false
+}

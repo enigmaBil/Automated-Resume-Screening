@@ -25,6 +25,6 @@ public class MatchingResult {
 
     private double matchScore;
 
-    @Column(columnDefinition = "jsonb")
+    @Column(columnDefinition = "TEXT")
     private String details; // JSON with match details
 }

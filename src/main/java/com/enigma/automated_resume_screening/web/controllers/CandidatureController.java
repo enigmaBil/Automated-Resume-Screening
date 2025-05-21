@@ -1,22 +1,17 @@
 package com.enigma.automated_resume_screening.web.controllers;
 
+import com.enigma.automated_resume_screening.business.services.CVParsingService;
 import com.enigma.automated_resume_screening.business.services.CandidateService;
-import com.enigma.automated_resume_screening.business.services.CvTextExtractionService;
-import com.enigma.automated_resume_screening.business.services.EmbeddingService;
-import com.enigma.automated_resume_screening.business.services.EmbeddingStorageService;
 import com.enigma.automated_resume_screening.business.services.JobApplicationService;
-import com.enigma.automated_resume_screening.business.services.ParsingService;
-import com.enigma.automated_resume_screening.business.services.RagService;
-import com.enigma.automated_resume_screening.config.FileStorageConfig;
+import com.enigma.automated_resume_screening.business.services.JobOfferService;
+import com.enigma.automated_resume_screening.business.services.MatchingResultService;
+import com.enigma.automated_resume_screening.business.services.MatchingService;
 import com.enigma.automated_resume_screening.dao.entities.Candidate;
+import com.enigma.automated_resume_screening.dao.entities.JobApplication;
 import com.enigma.automated_resume_screening.dao.entities.JobOffer;
-import com.enigma.automated_resume_screening.dao.repositories.JobOfferRepository;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
-import org.apache.pdfbox.Loader;
-import org.apache.pdfbox.pdmodel.PDDocument;
-import org.springframework.core.io.FileSystemResource;
-import org.springframework.core.io.Resource;
-import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.CrossOrigin;
@@ -24,31 +19,24 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
-import org.springframework.web.bind.annotation.RequestPart;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 
-import java.io.File;
-import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
-import java.util.Arrays;
+import java.util.Map;
 
 @RestController
 @CrossOrigin("*")
 @RequestMapping("/api/candidates")
 @RequiredArgsConstructor
 public class CandidatureController {
+
     private final CandidateService candidateService;
-    private final JobOfferRepository jobOfferRepository;
+    private final JobOfferService jobOfferService;
     private final JobApplicationService jobApplicationService;
-    private final CvTextExtractionService cvTextExtractionService;
-    private final ParsingService parsingService;
-    private final EmbeddingService embeddingService;
-    private final EmbeddingStorageService embeddingStorageService;
-    private final RagService ragService;
-    private final FileStorageConfig fileStorageConfig;
+    private final CVParsingService cvParsingService;
+    private final MatchingService matchingService;
+    private final MatchingResultService matchingResultService;
+    private final ObjectMapper objectMapper = new ObjectMapper();
 
     @PostMapping(value = "/apply/{jobOfferId}", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ResponseEntity<String> applyToJob(
@@ -58,53 +46,49 @@ public class CandidatureController {
             @RequestParam("phone") String phone,
             @RequestParam("experienceYears") int experienceYears,
             @RequestParam("educationLevel") String educationLevel,
-            @RequestParam("file") MultipartFile file) {
-
+//            @RequestParam("skills") String skillsJson,
+            @RequestParam("file") MultipartFile file) throws JsonProcessingException {
         try {
-            JobOffer jobOffer = jobOfferRepository.findById(jobOfferId)
-                    .orElseThrow(() -> new RuntimeException("Offre d'emploi non trouvée"));
+            // Étape 1 : Parser le CV
+            Map<String, Object> parsed = cvParsingService.parseResume(file);
+            Map<String, Object> llmResult = (Map<String, Object>) parsed.get("llm_result");
+            System.out.println("Résultat LLM : "+llmResult);
 
-            if (file.isEmpty()) {
-                return ResponseEntity.badRequest().body("Aucun fichier CV fourni.");
-            }
+            // 2. Récupération des compétences nettoyées
+            Object skillsObj = parsed.get("normalized_skills");
+            String skillsJson = objectMapper.writeValueAsString(skillsObj);
 
-            Candidate candidate = candidateService.saveCandidate(name, email, phone, experienceYears, educationLevel, file);
+            // Étape 3 : Créer le candidat enrichi
+            Candidate candidate = Candidate.builder()
+                    .name(name)
+                    .email(email)
+                    .phone(phone)
+                    .experienceYears(experienceYears)
+                    .educationLevel(educationLevel)
+                    .skills(skillsJson)
+                    .build();
 
-            // Créer la candidature
-            jobApplicationService.createApplication(candidate, jobOffer);
+            Candidate savedCandidate = candidateService.saveCandidateWithCV(candidate, file);
+            System.out.println(candidateService);
 
-            Path uploadPath = fileStorageConfig.getUploadPath();
-            File targetFile = new File(uploadPath.toFile(), file.getOriginalFilename());
-            file.transferTo(targetFile);
+            //Créer la candidature
+            JobOffer jobOffer = jobOfferService.getJobOffer(jobOfferId);
+            JobApplication application = jobApplicationService.createApplication(savedCandidate, jobOffer);
+            System.out.println(application);
 
-            // Vérifie si le PDF est lisible
-            try (var pdfDoc = Loader.loadPDF(targetFile)) {
-                Resource resource = new FileSystemResource(targetFile);
-                ragService.textEmbedding(new Resource[]{resource});
-            } catch (IOException ioEx) {
-                return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                        .body("Le fichier fourni est corrompu ou non lisible : " + ioEx.getMessage());
-            }
+            //Matching IA
+            Map<String, Object> matchingResult = matchingService.matchCandidateToOffer(candidate, jobOffer);
+            int score = (int) matchingResult.get("score");
+            String commentaire = (String) matchingResult.get("commentaire");
+            System.out.println(matchingResult);
 
-            String query = """
-            Give me in json format, for each resume and for each candidat: candidat's personal information, education, professional experience, certifications, skills
-            and project history.
-            """;
+            matchingResultService.saveMatchingResult(candidate, jobOffer, score, commentaire);
 
-            String response = ragService.extractDataFromLLM(query);
-            System.out.println(response);
+            return ResponseEntity.ok("Candidature enregistrée avec succès avec ID : " + application.getId());
 
-            // 🔁 ARCHIVE du fichier après traitement
-            Path archivePath = uploadPath.resolve("archive");
-            Files.createDirectories(archivePath);
-            Path archivedFile = archivePath.resolve(file.getOriginalFilename());
-            Files.move(targetFile.toPath(), archivedFile, StandardCopyOption.REPLACE_EXISTING);
-
-            return ResponseEntity.ok("Candidature soumise avec succès !");
         } catch (Exception e) {
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body("Erreur lors de la soumission de la candidature : " + e.getMessage());
+            e.getMessage();
+            return ResponseEntity.internalServerError().body("Candidature créée, mais erreur IA/parsing : " + e.getMessage());
         }
     }
-
 }
