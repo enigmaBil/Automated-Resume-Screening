@@ -27,11 +27,8 @@ public class SecurityConfig {
     public SecurityFilterChain securityFilterChain(HttpSecurity httpSecurity) throws Exception {
         httpSecurity.csrf(AbstractHttpConfigurer::disable)
                 .authorizeHttpRequests(auth ->auth
-                        .requestMatchers(
+                        .requestMatchers("/api/job-offers/**","/api/candidates/apply/**",
                         "/api/auth/register", "/api/auth/**", "/v2/api-docs", "/v3/api-docs", "/v3/api-docs/**", "/swagger-resources", "/swagger-resources/**", "/swagger-ui/**", "/swagger-ui.html", "/webjars/**", "/configuration/ui", "/configuration/security").permitAll()
-                        .requestMatchers(HttpMethod.GET, "/api/matchings/**").permitAll()
-                        .requestMatchers(HttpMethod.GET, "/api/job-offers/**").permitAll()
-                        .requestMatchers(HttpMethod.POST, "/api/apply/**").permitAll()
                         .anyRequest().authenticated()
                 )
                 .sessionManagement(session -> session

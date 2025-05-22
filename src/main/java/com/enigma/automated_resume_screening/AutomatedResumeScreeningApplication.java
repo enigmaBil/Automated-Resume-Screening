@@ -21,7 +21,7 @@ public class AutomatedResumeScreeningApplication {
 			RhRepository rhRepository
 	) {
 		return args -> {
-			String adminEmail = "admin@mail.com";
+			String adminEmail = "emmanueldigital9@gmail.com";
 
 			// Vérifie si l'utilisateur existe déjà
 			if (rhRepository.findByEmail(adminEmail).isEmpty()) {

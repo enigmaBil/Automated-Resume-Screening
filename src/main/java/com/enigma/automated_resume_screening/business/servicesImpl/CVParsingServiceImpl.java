@@ -6,6 +6,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import org.apache.pdfbox.pdmodel.PDDocument;
 import org.apache.pdfbox.text.PDFTextStripper;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.chat.messages.SystemMessage;
 import org.springframework.ai.chat.messages.UserMessage;
@@ -26,7 +28,7 @@ import java.util.stream.Collectors;
 @Service
 @RequiredArgsConstructor
 public class CVParsingServiceImpl implements CVParsingService {
-
+    private static final Logger log = LoggerFactory.getLogger(CVParsingServiceImpl.class);
     private final OllamaService ollamaService;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
@@ -43,22 +45,30 @@ public class CVParsingServiceImpl implements CVParsingService {
                 throw new RuntimeException("Le CV est vide ou non lisible.");
             }
 
-            System.out.println("✅ Texte extrait du PDF :\n" + text);
+            log.info("Texte extrait : {}", text);
 
       // 2. Prompt unique pour extraire directement les infos au format JSON
-      String prompt =
-          """
-            Voici un CV brut. Donne uniquement les informations suivantes extraites du CV, en format JSON pur (sans aucun texte autour ni balise markdown):
-            - nom complet
-            - email
-            - téléphone
-            - compétences principales (sous forme: [Java, Spring Boot, etc...], enleve tout les slashs et rend chaque competence individuelle)
-            - niveau d’éducation
-            - années d’expérience
-            Réponds strictement avec du JSON.
-            CV :
-            """
-              + text;
+            String prompt =
+                    """
+                    Voici un CV brut. Extrait uniquement les informations suivantes au format JSON pur, sans aucun texte autour ni balise markdown :
+                
+                    {
+                      "name": "",
+                      "email": "",
+                      "phone": "",
+                      "mainSkills": ["Java", "Spring Boot", ...],
+                      "educationLevel": "",
+                      "yearsOfExperience": 0
+                    }
+                
+                    Important :
+                    - Donne uniquement ce JSON, sans explication.
+                    - Sépare bien chaque compétence individuellement (pas de slashs, pas de groupements).
+                    - "yearsOfExperience" doit être un entier (0 si non précisé).
+                    
+                    CV :
+                    """ + text;
+
 
             // Appel au LLM
             String llamaResponse = ollamaService.callLlama3(prompt);
@@ -74,7 +84,7 @@ public class CVParsingServiceImpl implements CVParsingService {
             //  parsing final
             Map<String, Object> extractedData = objectMapper.readValue(jsonBlock, new TypeReference<>() {});
             // Nettoyage des compétences
-            Object rawSkills = extractedData.get("compétences_principales");
+            Object rawSkills = extractedData.get("mainSkills");
             List<String> cleanedSkills = normalizeSkills(rawSkills);
 
             Map<String, Object> output = new HashMap<>();
